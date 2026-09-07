@@ -9,7 +9,7 @@ import pytest
 from podcast_downloader.config import AppConfig
 from podcast_downloader.exceptions import DependencyError, DownloadError, InvalidPlaylistError
 from podcast_downloader.models import EpisodeCandidate
-from podcast_downloader.runner import dry_run_plan, read_archive_ids
+from podcast_downloader.runner import classify_metadata_lookup_failure, dry_run_plan, read_archive_ids
 from podcast_downloader.ytdlp import YtDlpClient, require_executable
 
 
@@ -60,6 +60,14 @@ def test_youtube_tab_http_400_is_reported_as_invalid_playlist(monkeypatch: pytes
     monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
     with pytest.raises(InvalidPlaylistError, match="sample placeholder"):
         client.discover_playlist("https://www.youtube.com/playlist?list=PL1234567890abcdefghi")
+
+
+def test_private_video_metadata_error_is_skippable() -> None:
+    assert classify_metadata_lookup_failure("ERROR: [youtube] aMdTvV1cjXs: Private video") == "private"
+
+
+def test_network_metadata_error_is_not_skippable() -> None:
+    assert classify_metadata_lookup_failure("ERROR: Unable to download webpage: timed out") is None
 
 
 def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:

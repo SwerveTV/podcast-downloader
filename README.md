@@ -401,6 +401,8 @@ This inspects playlist metadata only and does not download video.
 
 `Private or unavailable playlist`: confirm the playlist is public or provide an approved cookie file/browser source locally.
 
+`Private video` during candidate metadata lookup: the video is skipped and recorded in `rejected-episodes.json`. Private playlist failures remain fatal.
+
 `Network failure` or `rate limiting`: rerun later, increase `sleep_interval_seconds`, or reduce concurrent operator activity.
 
 `QC destination already exists`: another completed copy of the show is already present. Move, archive, or inspect it before retrying.

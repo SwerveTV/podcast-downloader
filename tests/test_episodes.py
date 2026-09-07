@@ -33,3 +33,13 @@ def test_handles_fewer_than_requested():
     selected = select_newest_eligible([ep("only", "2026-01-01")], AppConfig(episode_count=10))
 
     assert [episode.id for episode in selected.selected] == ["only"]
+
+
+def test_unavailable_candidate_is_rejected():
+    selected = select_newest_eligible(
+        [EpisodeCandidate(id="private", title="Private video", webpage_url="x", availability="private")],
+        AppConfig(),
+    )
+
+    assert selected.selected == []
+    assert selected.rejected[0][1] == "unavailable: private"

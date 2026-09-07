@@ -4,7 +4,7 @@ from .config import AppConfig
 from .models import EpisodeCandidate, EpisodeSelection
 
 REJECTED_LIVE_STATUSES = {"is_live", "is_upcoming", "post_live"}
-UNAVAILABLE_MARKERS = {"private", "premium_only", "subscriber_only", "needs_auth", "unlisted"}
+UNAVAILABLE_MARKERS = {"private", "premium_only", "subscriber_only", "needs_auth", "unlisted", "unavailable", "deleted"}
 
 
 def is_short_like(episode: EpisodeCandidate) -> bool:

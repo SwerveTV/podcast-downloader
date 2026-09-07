@@ -220,6 +220,7 @@ def _fetch_candidates(client: YtDlpClient, entries: list[dict[str, object]], dep
     candidates: list[EpisodeCandidate] = []
     for position, entry in enumerate(entries[:depth], start=1):
         video_id = str(entry.get("id") or "")
+        title = str(entry.get("title") or video_id or "Unavailable video")
         url = str(
             entry.get("url")
             or entry.get("webpage_url")
@@ -227,9 +228,40 @@ def _fetch_candidates(client: YtDlpClient, entries: list[dict[str, object]], dep
         )
         if not url:
             continue
-        metadata = client.fetch_episode_metadata(url)
+        try:
+            metadata = client.fetch_episode_metadata(url)
+        except DownloadError as exc:
+            availability = classify_metadata_lookup_failure(str(exc))
+            if availability is None:
+                raise
+            candidates.append(
+                EpisodeCandidate(
+                    id=video_id,
+                    title=title,
+                    webpage_url=url,
+                    availability=availability,
+                    playlist_position=position,
+                    metadata={"metadata_error": str(exc)},
+                )
+            )
+            continue
         candidates.append(client.candidate_from_metadata(metadata, playlist_position=position))
     return candidates
+
+
+def classify_metadata_lookup_failure(message: str) -> str | None:
+    lower = message.casefold()
+    if "private video" in lower:
+        return "private"
+    if "video unavailable" in lower or "this video is unavailable" in lower:
+        return "unavailable"
+    if "has been removed" in lower or "deleted video" in lower:
+        return "deleted"
+    if "members-only" in lower or "members only" in lower:
+        return "subscriber_only"
+    if "sign in" in lower and any(marker in lower for marker in ("confirm", "age", "bot", "not a bot")):
+        return "needs_auth"
+    return None
 
 
 def _download_one(
