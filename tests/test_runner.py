@@ -399,6 +399,8 @@ def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) ->
     assert len(updates) == 1
     assert updates[0].percent == 50.0
     assert "--ignore-config" in captured["args"]
+    assert "--continue" in captured["args"]
+    assert "--continuedl" not in captured["args"]
 
 
 def test_keyboard_interrupt_propagates(monkeypatch: pytest.MonkeyPatch) -> None:

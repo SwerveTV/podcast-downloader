@@ -115,7 +115,7 @@ class YtDlpClient:
             "mp4",
             "--retries",
             str(self.config.retry_count),
-            "--continuedl",
+            "--continue",
             "--no-overwrites",
             "--download-archive",
             str(archive_path),
