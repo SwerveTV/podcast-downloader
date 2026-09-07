@@ -14,4 +14,5 @@ htmlcov/
 Podcast_Ingest/
 *.part
 *.ytdl
-
+config.yaml
+default.yaml

@@ -125,7 +125,10 @@ Public Google Sheets are read without Google API credentials by using the CSV ex
 3. Each operator validates and lists only their jobs.
 4. Each operator runs downloads into the shared `Podcast_Ingest` root.
 5. Completed show folders move to `02_Ready_for_QC`.
-6. After QC/ingest stages move folders forward manually, run consolidation.
+6. Operators use the downloader CSV metadata to fill out the online master tracker.
+7. Operators export the official ingest manifest from the tracker or its separate manifest tool.
+8. `Ingest-Sync` runs normally from that official ingest manifest.
+9. After QC/ingest stages move folders forward manually, run downloader consolidation when needed.
 
 Add a new operator by entering their name in `Operator` for one or more rows. Matching is case-insensitive and whitespace-tolerant.
 
@@ -188,6 +191,40 @@ Create a deterministic master manifest:
 ```bash
 podcast-download consolidate --output "/path/to/Podcast_Ingest"
 ```
+
+## Handoff To Ingest-Sync
+
+`podcast-downloader` and `Ingest-Sync` intentionally have different responsibilities.
+
+`podcast-downloader` is the acquisition tool. It downloads YouTube podcast assets, saves full `.info.json` metadata, writes per-show CSVs, and creates a downloader `master_manifest.csv`. That manifest is for review, QC, metadata copy/paste, audit, and filling out the online master tracker.
+
+`Ingest-Sync` remains the delivery tool. It should consume the official ingest manifest exported from the online tracker or the separate manifest-generation tool, not a converted downloader manifest.
+
+Recommended handoff:
+
+```bash
+podcast-download --config default.yaml run
+podcast-download --config default.yaml consolidate
+```
+
+Then:
+
+1. Open the per-show CSV or `Podcast_Ingest/manifests/master_manifest.csv`.
+2. Fill the online master tracker using the downloaded metadata.
+3. Export or download the official manifest expected by `Ingest-Sync`.
+4. In `Ingest-Sync/config.yaml`, set `manifest_path` to that official manifest.
+5. Add the downloader QC folder to `local_source_roots` so `Ingest-Sync` can find the downloaded files by basename.
+
+Example `Ingest-Sync/config.yaml` values:
+
+```yaml
+manifest_path: "/path/to/downloaded/official-ingest-manifest.xlsx"
+local_source_roots:
+  - "/path/to/Podcast_Ingest/02_Ready_for_QC"
+local_root: "/path/to/final/local/root"
+```
+
+Do not use the downloader CSV as `Ingest-Sync`'s `manifest_path` unless `Ingest-Sync` is explicitly changed to support that format. The downloader CSV contains acquisition metadata; the ingest manifest contains delivery filenames, GUIDs, target directories, and platform-specific ingest decisions.
 
 Use a config file:
 
