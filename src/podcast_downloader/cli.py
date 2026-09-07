@@ -55,6 +55,11 @@ def add_config_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cookie-file", type=Path)
     parser.add_argument("--sleep-interval-seconds", type=float)
     parser.add_argument("--clear-stale-locks", dest="clear_stale_locks", action="store_true")
+    parser.add_argument(
+        "--progress",
+        choices=("auto", "rich", "plain", "none"),
+        help="Live progress display mode. Defaults to auto.",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

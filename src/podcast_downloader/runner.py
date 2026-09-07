@@ -17,6 +17,7 @@ from .locks import ShowLock
 from .manifest import flatten_episode, write_json, write_manifest
 from .models import DownloadedEpisode, EpisodeCandidate, RunSummary, ShowJob
 from .paths import ensure_layout, episode_stem, operator_component, safe_component
+from .progress import ProgressReporter, create_progress_reporter
 from .spreadsheet import read_spreadsheet
 from .validation import filter_jobs_for_operator, parse_playlist_ref, validate_jobs
 from .ytdlp import YtDlpClient, check_dependencies
@@ -51,22 +52,28 @@ def run_downloads(input_path: str, operator: str, config: AppConfig, dry_run: bo
     started = time.monotonic()
     summary = RunSummary(started_at=now_iso())
     client: YtDlpClient | None = None
+    progress = create_progress_reporter(config.progress)
+    progress.start_run(len(selected_jobs))
     if not dry_run:
         check_dependencies(config)
         client = YtDlpClient(config)
 
-    for job in selected_jobs:
-        summary.shows_attempted += 1
-        show_result = process_show(job, operator, config, client, dry_run=dry_run)
-        summary.episodes_discovered += show_result["episodes_discovered"]
-        summary.episodes_selected += show_result["episodes_selected"]
-        summary.episodes_downloaded += show_result["episodes_downloaded"]
-        summary.episodes_skipped_archived += show_result["episodes_skipped_archived"]
-        summary.episodes_excluded += show_result["episodes_excluded"]
-        summary.episodes_failed += show_result["episodes_failed"]
-        summary.output_locations.extend(show_result["output_locations"])
-        if show_result["completed"]:
-            summary.shows_completed += 1
+    try:
+        for index, job in enumerate(selected_jobs, start=1):
+            summary.shows_attempted += 1
+            progress.start_show(job.show_name, index, len(selected_jobs))
+            show_result = process_show(job, operator, config, client, progress, dry_run=dry_run)
+            summary.episodes_discovered += show_result["episodes_discovered"]
+            summary.episodes_selected += show_result["episodes_selected"]
+            summary.episodes_downloaded += show_result["episodes_downloaded"]
+            summary.episodes_skipped_archived += show_result["episodes_skipped_archived"]
+            summary.episodes_excluded += show_result["episodes_excluded"]
+            summary.episodes_failed += show_result["episodes_failed"]
+            summary.output_locations.extend(show_result["output_locations"])
+            if show_result["completed"]:
+                summary.shows_completed += 1
+    finally:
+        progress.finish_run()
 
     summary.finished_at = now_iso()
     summary.runtime_seconds = round(time.monotonic() - started, 3)
@@ -82,6 +89,7 @@ def process_show(
     operator: str,
     config: AppConfig,
     client: YtDlpClient | None,
+    progress: ProgressReporter,
     dry_run: bool = False,
 ) -> ShowProcessResult:
     assert config.output_root is not None
@@ -102,6 +110,8 @@ def process_show(
         "output_locations": [str(show_root)],
     }
     if dry_run:
+        progress.show_status("dry-run: validation only, no media downloads")
+        progress.finish_show(completed=False)
         return result
 
     if client is None:
@@ -109,12 +119,17 @@ def process_show(
     with ShowLock(lock_path, operator, config.lock_timeout_seconds, config.clear_stale_locks):
         _create_show_dirs(show_root)
         archive_path = show_root / "download-archive.txt"
+        progress.show_status("discovering playlist entries")
         entries = client.discover_playlist(job.playlist_url)
         result["episodes_discovered"] = len(entries)
+        progress.show_status(
+            f"fetching detailed metadata for {len(entries[: config.playlist_scan_depth])} candidate(s)"
+        )
         candidates = _fetch_candidates(client, entries, config.playlist_scan_depth)
         selection = select_newest_eligible(candidates, config)
         result["episodes_selected"] = len(selection.selected)
         result["episodes_excluded"] = len(selection.rejected)
+        progress.show_status(f"selected {len(selection.selected)} episode(s), excluded {len(selection.rejected)}")
         write_json(
             show_root / "rejected-episodes.json",
             [
@@ -132,21 +147,25 @@ def process_show(
         skipped = 0
         downloaded_count = 0
         archived_ids = read_archive_ids(archive_path)
-        for episode in selection.selected:
+        for episode_index, episode in enumerate(selection.selected, start=1):
+            progress.start_episode(episode.title, episode_index, len(selection.selected))
             if episode.id in archived_ids:
                 skipped += 1
                 downloaded = DownloadedEpisode(
                     episode=episode, status="skipped_archived", downloaded_timestamp=now_iso()
                 )
+                progress.finish_episode("skipped: already archived")
             else:
                 try:
-                    downloaded = _download_one(client, episode, show_root, archive_path, config)
+                    downloaded = _download_one(client, episode, show_root, archive_path, config, progress)
                     downloaded_count += 1
+                    progress.finish_episode("downloaded")
                 except (DownloadError, OSError) as exc:
                     failures += 1
                     downloaded = DownloadedEpisode(
                         episode=episode, status="failed", error_message=str(exc), downloaded_timestamp=now_iso()
                     )
+                    progress.finish_episode("failed")
             rows.append(flatten_episode(job, playlist.playlist_id, job.playlist_url, downloaded, show_root))
         result["episodes_skipped_archived"] = skipped
         result["episodes_downloaded"] = downloaded_count
@@ -165,6 +184,7 @@ def process_show(
             os.replace(show_root, destination)
             result["completed"] = True
             result["output_locations"] = [str(destination)]
+    progress.finish_show(completed=result["completed"])
     return result
 
 
@@ -218,11 +238,12 @@ def _download_one(
     show_root: Path,
     archive_path: Path,
     config: AppConfig,
+    progress: ProgressReporter,
 ) -> DownloadedEpisode:
     _check_free_space(show_root)
     stem = episode_stem(episode.upload_date, episode.title, episode.id, config.filename_max_length)
     output_template = show_root / "media" / f"{stem}.%(ext)s"
-    client.download_episode(episode, output_template, archive_path)
+    client.download_episode(episode, output_template, archive_path, progress.update_download)
     media = _find_first(show_root / "media", stem, [".mp4", ".mkv", ".webm", ".mov"])
     thumbnail = _find_first(show_root / "media", stem, [".jpg", ".jpeg", ".png", ".webp"])
     json_path = _find_first(show_root / "media", stem, [".info.json"])

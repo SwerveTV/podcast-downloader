@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -30,12 +31,12 @@ def test_missing_executable_has_actionable_error():
         require_executable("/definitely/not/yt-dlp", "yt-dlp")
 
 
-def test_failed_subprocess_is_reported(monkeypatch):
+def test_failed_subprocess_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     client = YtDlpClient.__new__(YtDlpClient)
     client.config = AppConfig()
     client.executable = "yt-dlp"
 
-    def fake_run(args, check, capture_output, text):
+    def fake_run(args: list[str], check: bool, capture_output: bool, text: bool) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, 1, "", "network failure")
 
     monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
@@ -43,15 +44,66 @@ def test_failed_subprocess_is_reported(monkeypatch):
         client.fetch_episode_metadata("https://youtu.be/id")
 
 
-def test_keyboard_interrupt_propagates(monkeypatch):
+def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = YtDlpClient.__new__(YtDlpClient)
+    client.config = AppConfig()
+    client.executable = "yt-dlp"
+    updates = []
+
+    class FakeProcess:
+        stdout = iter(["PD_PROGRESS\t50.0%\t2MiB/s\t00:05\t100\t200\n", "[download] complete\n"])
+        returncode = 0
+
+        def wait(self, timeout: int | None = None) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            pass
+
+        def kill(self) -> None:
+            pass
+
+    def fake_popen(*args: Any, **kwargs: Any) -> FakeProcess:
+        return FakeProcess()
+
+    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.Popen", fake_popen)
+
+    client.download_episode(
+        EpisodeCandidate("id", "title", "url"),
+        Path("/tmp/out.%(ext)s"),
+        Path("/tmp/archive.txt"),
+        updates.append,
+    )
+
+    assert len(updates) == 1
+    assert updates[0].percent == 50.0
+
+
+def test_keyboard_interrupt_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
     client = YtDlpClient.__new__(YtDlpClient)
     client.config = AppConfig()
     client.executable = "yt-dlp"
 
-    def fake_run(args, check, capture_output, text):
-        raise KeyboardInterrupt
+    class FakeProcess:
+        returncode = None
 
-    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
+        @property
+        def stdout(self):
+            raise KeyboardInterrupt
+
+        def wait(self, timeout: int | None = None) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            pass
+
+        def kill(self) -> None:
+            pass
+
+    def fake_popen(*args: Any, **kwargs: Any) -> FakeProcess:
+        return FakeProcess()
+
+    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.Popen", fake_popen)
     with pytest.raises(KeyboardInterrupt):
         client.download_episode(
             EpisodeCandidate("id", "title", "url"),

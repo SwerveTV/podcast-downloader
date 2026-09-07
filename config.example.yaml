@@ -14,4 +14,4 @@ cookie_browser: null
 cookie_file: null
 sleep_interval_seconds: 0.0
 clear_stale_locks: false
-
+progress: "auto"

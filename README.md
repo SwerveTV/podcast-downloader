@@ -168,7 +168,17 @@ podcast-download run \
   --input "/path/to/shows.xlsx" \
   --operator "Trey" \
   --output "/path/to/Podcast_Ingest" \
-  --yt-dlp-path "$(brew --prefix yt-dlp)/bin/yt-dlp"
+  --yt-dlp-path "$(brew --prefix yt-dlp)/bin/yt-dlp" \
+  --progress auto
+```
+
+Progress modes:
+
+```text
+auto   Rich progress bars in an interactive terminal, plain progress elsewhere
+rich   Force Rich progress bars
+plain  Print readable progress lines to stderr
+none   Disable live progress
 ```
 
 Retry failed or incomplete episodes by running the same command again. Successful video IDs are skipped through the per-show `download-archive.txt`; `.part` files are preserved for resumption.
@@ -269,6 +279,7 @@ cookie_browser: null
 cookie_file: null
 sleep_interval_seconds: 0.0
 clear_stale_locks: false
+progress: "auto"
 ```
 
 No real cookies or credentials should be committed. Cookie support is disabled by default.

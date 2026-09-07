@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .progress import ProgressMode
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -25,6 +27,7 @@ class AppConfig:
     cookie_file: Path | None = None
     sleep_interval_seconds: float = 0.0
     clear_stale_locks: bool = False
+    progress: ProgressMode = "auto"
 
 
 def load_config(path: Path | None) -> AppConfig:

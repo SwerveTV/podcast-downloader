@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
 from .exceptions import DependencyError, DownloadError
 from .models import EpisodeCandidate
+from .progress import PROGRESS_TEMPLATE, DownloadProgress, parse_progress_line
 
 
 def require_executable(path_or_name: str, label: str) -> str:
@@ -86,10 +88,17 @@ class YtDlpClient:
         )
 
     def download_episode(
-        self, episode: EpisodeCandidate, output_template: Path, archive_path: Path
+        self,
+        episode: EpisodeCandidate,
+        output_template: Path,
+        archive_path: Path,
+        progress_callback: Callable[[DownloadProgress], None] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         args = [
             self.executable,
+            "--newline",
+            "--progress-template",
+            PROGRESS_TEMPLATE,
             "--format",
             self.config.format_selector,
             "--merge-output-format",
@@ -117,7 +126,7 @@ class YtDlpClient:
         if self.config.sleep_interval_seconds:
             args.extend(["--sleep-interval", str(self.config.sleep_interval_seconds)])
         args.append(episode.webpage_url)
-        return self._run(args)
+        return self._run_streaming(args, progress_callback)
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         try:
@@ -132,6 +141,50 @@ class YtDlpClient:
             stderr = _redact(result.stderr.strip())
             raise DownloadError(stderr or f"yt-dlp exited with status {result.returncode}")
         return result
+
+    def _run_streaming(
+        self, args: list[str], progress_callback: Callable[[DownloadProgress], None] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        try:
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except KeyboardInterrupt:
+            raise
+        except FileNotFoundError as exc:
+            raise DependencyError(f"Missing executable: {args[0]}") from exc
+        except OSError as exc:
+            raise DownloadError(f"Failed to start yt-dlp: {exc}") from exc
+
+        try:
+            if process.stdout is not None:
+                for line in process.stdout:
+                    parsed = parse_progress_line(line)
+                    if parsed and progress_callback:
+                        progress_callback(parsed)
+                    else:
+                        stdout_lines.append(line)
+            process.wait()
+        except KeyboardInterrupt:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            raise
+        returncode = process.returncode if process.returncode is not None else process.wait()
+        stdout = "".join(stdout_lines)
+        stderr_text = "".join(stderr_lines)
+        if returncode != 0:
+            stderr = _redact(stderr_text.strip() or stdout.strip())
+            raise DownloadError(stderr or f"yt-dlp exited with status {returncode}")
+        return subprocess.CompletedProcess(args, returncode, stdout, stderr_text)
 
 
 def _redact(value: str) -> str:
