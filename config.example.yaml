@@ -2,7 +2,7 @@ input: "/path/to/shows.xlsx"
 operator: "Trey"
 episode_count: 10
 playlist_scan_depth: 50
-minimum_duration_seconds: 1200
+minimum_duration_seconds: 900
 exclude_shorts: true
 exclude_livestreams: true
 yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
