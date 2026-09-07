@@ -9,7 +9,17 @@ import pytest
 from podcast_downloader.config import AppConfig
 from podcast_downloader.exceptions import DependencyError, DownloadError, InvalidPlaylistError
 from podcast_downloader.models import EpisodeCandidate
-from podcast_downloader.runner import classify_metadata_lookup_failure, dry_run_plan, read_archive_ids
+from podcast_downloader.runner import (
+    classify_metadata_lookup_failure,
+    dry_run_plan,
+    entry_signature,
+    find_completed_show,
+    is_cache_expired,
+    load_cached_candidates,
+    process_show,
+    read_archive_ids,
+    write_candidate_cache,
+)
 from podcast_downloader.ytdlp import YtDlpClient, require_executable
 
 
@@ -68,6 +78,160 @@ def test_private_video_metadata_error_is_skippable() -> None:
 
 def test_network_metadata_error_is_not_skippable() -> None:
     assert classify_metadata_lookup_failure("ERROR: Unable to download webpage: timed out") is None
+
+
+def test_candidate_metadata_cache_round_trip(tmp_path: Path) -> None:
+    entries: list[dict[str, object]] = [{"id": "new"}, {"id": "old"}]
+    candidates = [
+        EpisodeCandidate(
+            id="new",
+            title="New Episode",
+            webpage_url="https://youtu.be/new",
+            upload_date="2026-01-02",
+            duration=3600,
+            metadata={"description": "cached"},
+        )
+    ]
+    config = AppConfig(playlist_scan_depth=2)
+    cache_path = tmp_path / "metadata-cache" / "playlist-candidates.json"
+
+    write_candidate_cache(cache_path, "PLcache1234567890", entries, candidates, config)
+    cached = load_cached_candidates(cache_path, "PLcache1234567890", entries, config)
+
+    assert cached is not None
+    assert cached[0].id == "new"
+    assert cached[0].metadata["description"] == "cached"
+
+
+def test_candidate_metadata_cache_misses_on_signature_change(tmp_path: Path) -> None:
+    entries: list[dict[str, object]] = [{"id": "new"}]
+    config = AppConfig(playlist_scan_depth=1)
+    cache_path = tmp_path / "cache.json"
+    write_candidate_cache(cache_path, "PLcache1234567890", entries, [], config)
+
+    cached = load_cached_candidates(cache_path, "PLcache1234567890", [{"id": "different"}], config)
+
+    assert cached is None
+
+
+def test_candidate_metadata_cache_refresh_flag_bypasses_cache(tmp_path: Path) -> None:
+    entries: list[dict[str, object]] = [{"id": "new"}]
+    cache_path = tmp_path / "cache.json"
+    write_candidate_cache(cache_path, "PLcache1234567890", entries, [], AppConfig(playlist_scan_depth=1))
+
+    cached = load_cached_candidates(
+        cache_path,
+        "PLcache1234567890",
+        entries,
+        AppConfig(playlist_scan_depth=1, refresh_metadata=True),
+    )
+
+    assert cached is None
+
+
+def test_cache_expiration() -> None:
+    assert not is_cache_expired("2026-01-01T00:00:00+00:00", 0)
+    assert is_cache_expired("not a timestamp", 86400)
+
+
+def test_entry_signature_prefers_video_ids() -> None:
+    assert entry_signature([{"id": "abc", "url": "fallback"}], 1) == ["abc"]
+
+
+def test_find_completed_show_checks_downstream_stages(tmp_path: Path) -> None:
+    from podcast_downloader.models import ShowJob
+
+    job = ShowJob(
+        row_number=2,
+        network="Network",
+        show_name="Show",
+        playlist_url="https://www.youtube.com/playlist?list=PLcache1234567890",
+    )
+    completed = tmp_path / "03_Ready_for_Ingest" / "Network" / "Show"
+    completed.mkdir(parents=True)
+
+    assert find_completed_show(tmp_path, job) == completed
+
+
+def test_process_show_skips_already_completed_show(tmp_path: Path) -> None:
+    from podcast_downloader.models import ShowJob
+    from podcast_downloader.progress import NoOpProgress
+
+    job = ShowJob(
+        row_number=2,
+        network="Network",
+        show_name="Show",
+        playlist_url="https://www.youtube.com/playlist?list=PLcache1234567890",
+    )
+    completed = tmp_path / "02_Ready_for_QC" / "Network" / "Show"
+    completed.mkdir(parents=True)
+
+    result = process_show(
+        job,
+        "Trey",
+        AppConfig(output_root=tmp_path),
+        client=None,
+        progress=NoOpProgress(),
+        dry_run=True,
+    )
+
+    assert result["completed"] is True
+    assert result["output_locations"] == [str(completed)]
+
+
+def test_process_show_uses_valid_metadata_cache(tmp_path: Path) -> None:
+    from podcast_downloader.models import ShowJob
+    from podcast_downloader.progress import NoOpProgress
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.metadata_calls = 0
+
+        def discover_playlist(self, playlist_url: str) -> list[dict[str, object]]:
+            return [{"id": "cached"}]
+
+        def fetch_episode_metadata(self, url_or_id: str) -> dict[str, object]:
+            self.metadata_calls += 1
+            return {}
+
+        def download_episode(self, *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess([], 0, "", "")
+
+    job = ShowJob(
+        row_number=2,
+        network="Network",
+        show_name="Show",
+        playlist_url="https://www.youtube.com/playlist?list=PLcache1234567890",
+    )
+    show_root = tmp_path / "01_Downloading" / "Trey" / "Network" / "Show"
+    cache_path = show_root / "metadata-cache" / "playlist-candidates.json"
+    write_candidate_cache(
+        cache_path,
+        "PLcache1234567890",
+        [{"id": "cached"}],
+        [
+            EpisodeCandidate(
+                id="cached",
+                title="Cached Episode",
+                webpage_url="https://youtu.be/cached",
+                upload_date="2026-01-01",
+                duration=3600,
+            )
+        ],
+        AppConfig(output_root=tmp_path, episode_count=1, playlist_scan_depth=1),
+    )
+    client = FakeClient()
+
+    result = process_show(
+        job,
+        "Trey",
+        AppConfig(output_root=tmp_path, episode_count=1, playlist_scan_depth=1),
+        client=client,  # type: ignore[arg-type]
+        progress=NoOpProgress(),
+    )
+
+    assert result["completed"] is True
+    assert client.metadata_calls == 0
 
 
 def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:

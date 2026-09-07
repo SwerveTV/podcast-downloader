@@ -7,7 +7,7 @@ import time
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 from .atomic import atomic_write_text
 from .config import AppConfig
@@ -109,6 +109,13 @@ def process_show(
         "episodes_failed": 0,
         "output_locations": [str(show_root)],
     }
+    completed_show = find_completed_show(config.output_root, job)
+    if completed_show is not None:
+        progress.show_status(f"already completed at {completed_show}")
+        progress.finish_show(completed=True)
+        result["completed"] = True
+        result["output_locations"] = [str(completed_show)]
+        return result
     if dry_run:
         progress.show_status("dry-run: validation only, no media downloads")
         progress.finish_show(completed=False)
@@ -122,10 +129,16 @@ def process_show(
         progress.show_status("discovering playlist entries")
         entries = client.discover_playlist(job.playlist_url)
         result["episodes_discovered"] = len(entries)
-        progress.show_status(
-            f"fetching detailed metadata for {len(entries[: config.playlist_scan_depth])} candidate(s)"
-        )
-        candidates = _fetch_candidates(client, entries, config.playlist_scan_depth)
+        cache_path = show_root / "metadata-cache" / "playlist-candidates.json"
+        candidates = load_cached_candidates(cache_path, playlist.playlist_id, entries, config)
+        if candidates is None:
+            progress.show_status(
+                f"fetching detailed metadata for {len(entries[: config.playlist_scan_depth])} candidate(s)"
+            )
+            candidates = _fetch_candidates(client, entries, config.playlist_scan_depth)
+            write_candidate_cache(cache_path, playlist.playlist_id, entries, candidates, config)
+        else:
+            progress.show_status(f"using cached detailed metadata for {len(candidates)} candidate(s)")
         selection = select_newest_eligible(candidates, config)
         result["episodes_selected"] = len(selection.selected)
         result["episodes_excluded"] = len(selection.rejected)
@@ -249,6 +262,105 @@ def _fetch_candidates(client: YtDlpClient, entries: list[dict[str, object]], dep
     return candidates
 
 
+def load_cached_candidates(
+    cache_path: Path,
+    playlist_id: str,
+    entries: list[dict[str, object]],
+    config: AppConfig,
+) -> list[EpisodeCandidate] | None:
+    if not config.metadata_cache_enabled or config.refresh_metadata or not cache_path.exists():
+        return None
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(cache, dict):
+        return None
+    if cache.get("playlist_id") != playlist_id:
+        return None
+    if cache.get("scan_depth") != config.playlist_scan_depth:
+        return None
+    if cache.get("entry_signature") != entry_signature(entries, config.playlist_scan_depth):
+        return None
+    created_at = str(cache.get("created_at") or "")
+    if is_cache_expired(created_at, config.metadata_cache_ttl_seconds):
+        return None
+    raw_candidates = cache.get("candidates")
+    if not isinstance(raw_candidates, list):
+        return None
+    candidates: list[EpisodeCandidate] = []
+    for item in raw_candidates:
+        if not isinstance(item, dict):
+            return None
+        candidates.append(candidate_from_cache_item(item))
+    return candidates
+
+
+def write_candidate_cache(
+    cache_path: Path,
+    playlist_id: str,
+    entries: list[dict[str, object]],
+    candidates: list[EpisodeCandidate],
+    config: AppConfig,
+) -> None:
+    if not config.metadata_cache_enabled:
+        return
+    payload = {
+        "version": 1,
+        "created_at": now_iso(),
+        "playlist_id": playlist_id,
+        "scan_depth": config.playlist_scan_depth,
+        "entry_signature": entry_signature(entries, config.playlist_scan_depth),
+        "candidates": [asdict(candidate) for candidate in candidates],
+    }
+    atomic_write_text(cache_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+def entry_signature(entries: list[dict[str, object]], depth: int) -> list[str]:
+    signature: list[str] = []
+    for entry in entries[:depth]:
+        video_id = str(entry.get("id") or "")
+        url = str(entry.get("url") or entry.get("webpage_url") or "")
+        signature.append(video_id or url)
+    return signature
+
+
+def is_cache_expired(created_at: str, ttl_seconds: int) -> bool:
+    if ttl_seconds <= 0:
+        return False
+    try:
+        timestamp = datetime.fromisoformat(created_at).astimezone(UTC)
+    except ValueError:
+        return True
+    return (datetime.now(UTC) - timestamp).total_seconds() > ttl_seconds
+
+
+def candidate_from_cache_item(item: dict[str, object]) -> EpisodeCandidate:
+    return EpisodeCandidate(
+        id=str(item.get("id") or ""),
+        title=str(item.get("title") or ""),
+        webpage_url=str(item.get("webpage_url") or ""),
+        upload_date=str(item.get("upload_date") or ""),
+        timestamp=_optional_int(item.get("timestamp")),
+        release_timestamp=_optional_int(item.get("release_timestamp")),
+        release_date=str(item.get("release_date") or ""),
+        duration=_optional_int(item.get("duration")),
+        live_status=str(item.get("live_status") or ""),
+        availability=str(item.get("availability") or ""),
+        playlist_position=_optional_int(item.get("playlist_position")),
+        metadata=cast(dict[str, Any], item.get("metadata")) if isinstance(item.get("metadata"), dict) else {},
+    )
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value) if isinstance(value, int | float | str) else None
+    except ValueError:
+        return None
+
+
 def classify_metadata_lookup_failure(message: str) -> str | None:
     lower = message.casefold()
     if "private video" in lower:
@@ -261,6 +373,19 @@ def classify_metadata_lookup_failure(message: str) -> str | None:
         return "subscriber_only"
     if "sign in" in lower and any(marker in lower for marker in ("confirm", "age", "bot", "not a bot")):
         return "needs_auth"
+    return None
+
+
+def find_completed_show(output_root: Path, job: ShowJob) -> Path | None:
+    for stage in ("02_Ready_for_QC", "03_Ready_for_Ingest", "04_Ingested"):
+        candidate = (
+            output_root
+            / stage
+            / safe_component(job.network, "Unknown Network")
+            / safe_component(job.show_name, "Unknown Show")
+        )
+        if candidate.exists():
+            return candidate
     return None
 
 

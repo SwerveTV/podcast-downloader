@@ -184,6 +184,24 @@ plain  Print readable progress lines to stderr
 none   Disable live progress
 ```
 
+Metadata discovery is cached per show after the first successful discovery pass. Reruns still refresh the flat playlist listing, but if the scanned candidate IDs are unchanged, detailed per-video metadata is loaded from:
+
+```text
+Network/Show Name/metadata-cache/playlist-candidates.json
+```
+
+Force a fresh metadata pass:
+
+```bash
+podcast-download --config config.yaml run --refresh-metadata
+```
+
+Disable metadata caching:
+
+```bash
+podcast-download --config config.yaml run --no-metadata-cache
+```
+
 Retry failed or incomplete episodes by running the same command again. Successful video IDs are skipped through the per-show `download-archive.txt`; `.part` files are preserved for resumption.
 
 Create a deterministic master manifest:
@@ -242,6 +260,9 @@ operator: "Trey"
 output_root: "/path/to/Podcast_Ingest"
 yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
 progress: "auto"
+metadata_cache_enabled: true
+metadata_cache_ttl_seconds: 86400
+refresh_metadata: false
 ```
 
 Then run:
@@ -366,6 +387,19 @@ Locks are removed only by the process that owns them. Ctrl+C preserves partial d
 ## Download Archive Behavior
 
 Each show has its own `download-archive.txt`. A global archive is intentionally avoided because multiple operators could write to it concurrently. Reruns are idempotent: archived video IDs are skipped, and `yt-dlp` is invoked with no-overwrite and resume-friendly options.
+
+## Metadata Cache
+
+Detailed YouTube metadata lookup is the slowest part of most reruns. The downloader caches the scanned candidate metadata inside each active show folder. The cache is reused only when all of these match:
+
+```text
+playlist ID
+playlist scan depth
+ordered candidate video IDs from the flat playlist scan
+metadata_cache_ttl_seconds
+```
+
+This keeps retries fast without blindly trusting stale playlist state. Set `metadata_cache_ttl_seconds: 0` to keep cache entries valid until the playlist candidate list changes. Use `--refresh-metadata` after changing filters or when you need fresh title/date/count metadata.
 
 ## Testing
 

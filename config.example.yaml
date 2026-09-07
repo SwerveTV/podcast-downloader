@@ -17,3 +17,6 @@ cookie_file: null
 sleep_interval_seconds: 0.0
 clear_stale_locks: false
 progress: "auto"
+metadata_cache_enabled: true
+metadata_cache_ttl_seconds: 86400
+refresh_metadata: false

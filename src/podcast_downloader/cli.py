@@ -43,22 +43,30 @@ def add_config_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--playlist-scan-depth", type=int)
     parser.add_argument("--minimum-duration-seconds", type=int)
     parser.add_argument("--no-minimum-duration", dest="minimum_duration_seconds", action="store_const", const=0)
-    parser.add_argument("--include-shorts", dest="exclude_shorts", action="store_false")
-    parser.add_argument("--include-livestreams", dest="exclude_livestreams", action="store_false")
+    parser.add_argument("--include-shorts", dest="exclude_shorts", action="store_false", default=None)
+    parser.add_argument("--include-livestreams", dest="exclude_livestreams", action="store_false", default=None)
     parser.add_argument("--yt-dlp-path")
     parser.add_argument("--format-selector")
     parser.add_argument("--lock-timeout-seconds", type=int)
     parser.add_argument("--retry-count", type=int)
     parser.add_argument("--filename-max-length", type=int)
-    parser.add_argument("--convert-thumbnail-to-jpg", action="store_true")
+    parser.add_argument("--convert-thumbnail-to-jpg", action="store_true", default=None)
     parser.add_argument("--cookie-browser")
     parser.add_argument("--cookie-file", type=Path)
     parser.add_argument("--sleep-interval-seconds", type=float)
-    parser.add_argument("--clear-stale-locks", dest="clear_stale_locks", action="store_true")
+    parser.add_argument("--clear-stale-locks", dest="clear_stale_locks", action="store_true", default=None)
     parser.add_argument(
         "--progress",
         choices=("auto", "rich", "plain", "none"),
         help="Live progress display mode. Defaults to auto.",
+    )
+    parser.add_argument("--metadata-cache-ttl-seconds", type=int)
+    parser.add_argument("--no-metadata-cache", dest="metadata_cache_enabled", action="store_false", default=None)
+    parser.add_argument(
+        "--refresh-metadata",
+        action="store_true",
+        default=None,
+        help="Ignore cached playlist candidate metadata.",
     )
 
 

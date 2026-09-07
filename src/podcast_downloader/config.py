@@ -30,6 +30,9 @@ class AppConfig:
     sleep_interval_seconds: float = 0.0
     clear_stale_locks: bool = False
     progress: ProgressMode = "auto"
+    metadata_cache_enabled: bool = True
+    metadata_cache_ttl_seconds: int = 24 * 60 * 60
+    refresh_metadata: bool = False
 
 
 def load_config(path: Path | None) -> AppConfig:
