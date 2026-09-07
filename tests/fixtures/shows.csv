@@ -1,0 +1,7 @@
+Network / Distributor,Show Name,Host(s),Number of Episodes,Subscriber Count,Full Episode Playlist,Operator,Status,Unnamed: 9
+Network Alpha,,,,,,,,
+Network Alpha,Alpha Show,"A, B",20,1000,https://www.youtube.com/playlist?list=PLalpha1234567890abcd,Trey,Assigned,ignored
+Network Alpha,Alpha Clips,A,20,1000,https://www.youtube.com/playlist?list=PLclips1234567890abcd,operator 2,Hold,
+Network Beta,Beta Show,B,10,2000,https://www.youtube.com/playlist?list=PLbeta1234567890abcde, TREY ,Assigned,
+,Missing Playlist,C,2,50,,Trey,Assigned,
+Network Gamma,,,,,,,,

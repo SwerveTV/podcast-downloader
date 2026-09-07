@@ -1,0 +1,6 @@
+Network / Distributor,Show Name,Host(s),Number of Episodes,Subscriber Count,Full Episode Playlist,Operator,Status,Notes
+Example Network,,,,,,,,
+Example Network,Example Podcast,"Host One, Host Two",250,100000,https://www.youtube.com/playlist?list=PL1234567890abcdefghi,Trey,Assigned,"Ready for dry-run testing"
+Example Network,Another Show,Host Three,75,50000,https://www.youtube.com/playlist?list=PLabcdefghi1234567890,Operator 2,Assigned,
+,Missing Playlist Show,Host Four,12,1000,,Trey,Assigned,"Validation warning example"
+

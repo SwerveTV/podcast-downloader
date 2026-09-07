@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "podcast-downloader"
+version = "0.1.0"
+description = "Collaborative YouTube podcast downloader with per-show locking and ingest manifests."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "LicenseRef-Proprietary-Placeholder" }
+authors = [{ name = "Podcast Downloader Operators" }]
+dependencies = [
+  "openpyxl>=3.1.5",
+  "PyYAML>=6.0.2",
+]
+
+[project.scripts]
+podcast-download = "podcast_downloader.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "types-PyYAML>=6.0.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/podcast_downloader"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["podcast_downloader"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "integration: opt-in tests that may call an external yt-dlp executable",
+]

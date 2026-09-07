@@ -1,0 +1,17 @@
+episode_count: 10
+playlist_scan_depth: 50
+minimum_duration_seconds: 1200
+exclude_shorts: true
+exclude_livestreams: true
+yt_dlp_path: "yt-dlp"
+format_selector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+output_root: "./Podcast_Ingest"
+lock_timeout_seconds: 21600
+retry_count: 3
+filename_max_length: 180
+convert_thumbnail_to_jpg: false
+cookie_browser: null
+cookie_file: null
+sleep_interval_seconds: 0.0
+clear_stale_locks: false
+
