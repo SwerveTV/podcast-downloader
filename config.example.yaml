@@ -12,7 +12,7 @@ output_root: "/path/to/Podcast_Ingest"
 lock_timeout_seconds: 21600
 retry_count: 3
 filename_max_length: 180
-convert_thumbnail_to_jpg: false
+convert_thumbnail_to_jpg: true
 cookie_browser: null
 cookie_file: null
 sleep_interval_seconds: 0.0
