@@ -10,6 +10,7 @@ from podcast_downloader.config import AppConfig
 from podcast_downloader.exceptions import DependencyError, DownloadError, InvalidPlaylistError
 from podcast_downloader.models import EpisodeCandidate
 from podcast_downloader.runner import (
+    _fetch_candidates,
     classify_metadata_lookup_failure,
     dry_run_plan,
     entry_signature,
@@ -138,6 +139,100 @@ def test_entry_signature_prefers_video_ids() -> None:
     assert entry_signature([{"id": "abc", "url": "fallback"}], 1) == ["abc"]
 
 
+def test_fetch_candidates_uses_partial_cache_for_missing_only(tmp_path: Path) -> None:
+    from podcast_downloader.progress import NoOpProgress
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def fetch_episode_metadata(self, url_or_id: str) -> dict[str, object]:
+            self.urls.append(url_or_id)
+            return {
+                "id": "missing",
+                "title": "Missing Episode",
+                "webpage_url": url_or_id,
+                "upload_date": "20260102",
+                "duration": 3600,
+            }
+
+        def candidate_from_metadata(
+            self, metadata: dict[str, object], playlist_position: int | None = None
+        ) -> EpisodeCandidate:
+            return EpisodeCandidate(
+                id=str(metadata["id"]),
+                title=str(metadata["title"]),
+                webpage_url=str(metadata["webpage_url"]),
+                upload_date="2026-01-02",
+                duration=3600,
+                playlist_position=playlist_position,
+                metadata=metadata,
+            )
+
+    entries: list[dict[str, object]] = [{"id": "cached"}, {"id": "missing"}]
+    cache_path = tmp_path / "metadata-cache" / "playlist-candidates.json"
+    config = AppConfig(playlist_scan_depth=2, metadata_workers=1)
+    write_candidate_cache(
+        cache_path,
+        "PLcache1234567890",
+        entries,
+        [
+            EpisodeCandidate(
+                id="cached",
+                title="Cached Episode",
+                webpage_url="https://youtu.be/cached",
+                upload_date="2026-01-01",
+                duration=3600,
+                playlist_position=1,
+            )
+        ],
+        config,
+    )
+    client = FakeClient()
+
+    candidates = _fetch_candidates(  # type: ignore[arg-type]
+        client, entries, "PLcache1234567890", cache_path, config, NoOpProgress()
+    )
+
+    assert [candidate.id for candidate in candidates] == ["cached", "missing"]
+    assert client.urls == ["https://www.youtube.com/watch?v=missing"]
+
+
+def test_fetch_candidates_uses_configured_worker_limit(tmp_path: Path) -> None:
+    from podcast_downloader.progress import NoOpProgress
+
+    class FakeClient:
+        def fetch_episode_metadata(self, url_or_id: str) -> dict[str, object]:
+            video_id = url_or_id.rsplit("=", 1)[-1]
+            return {"id": video_id, "title": video_id, "webpage_url": url_or_id, "upload_date": "20260101"}
+
+        def candidate_from_metadata(
+            self, metadata: dict[str, object], playlist_position: int | None = None
+        ) -> EpisodeCandidate:
+            return EpisodeCandidate(
+                id=str(metadata["id"]),
+                title=str(metadata["title"]),
+                webpage_url=str(metadata["webpage_url"]),
+                upload_date="2026-01-01",
+                duration=3600,
+                playlist_position=playlist_position,
+                metadata=metadata,
+            )
+
+    entries: list[dict[str, object]] = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+
+    candidates = _fetch_candidates(  # type: ignore[arg-type]
+        FakeClient(),
+        entries,
+        "PLcache1234567890",
+        tmp_path / "cache.json",
+        AppConfig(playlist_scan_depth=3, metadata_workers=2),
+        NoOpProgress(),
+    )
+
+    assert sorted(candidate.id for candidate in candidates) == ["a", "b", "c"]
+
+
 def test_find_completed_show_checks_downstream_stages(tmp_path: Path) -> None:
     from podcast_downloader.models import ShowJob
 
@@ -216,6 +311,7 @@ def test_process_show_uses_valid_metadata_cache(tmp_path: Path) -> None:
                 webpage_url="https://youtu.be/cached",
                 upload_date="2026-01-01",
                 duration=3600,
+                playlist_position=1,
             )
         ],
         AppConfig(output_root=tmp_path, episode_count=1, playlist_scan_depth=1),

@@ -20,3 +20,4 @@ progress: "auto"
 metadata_cache_enabled: true
 metadata_cache_ttl_seconds: 86400
 refresh_metadata: false
+metadata_workers: 4

@@ -196,6 +196,14 @@ Force a fresh metadata pass:
 podcast-download --config config.yaml run --refresh-metadata
 ```
 
+Speed up first-time metadata discovery with concurrent workers:
+
+```bash
+podcast-download --config config.yaml run --metadata-workers 4
+```
+
+The default is `4`. If YouTube starts rate-limiting, lower it to `2` or `1`; if the connection is healthy, `6` can be reasonable.
+
 Disable metadata caching:
 
 ```bash
@@ -263,6 +271,7 @@ progress: "auto"
 metadata_cache_enabled: true
 metadata_cache_ttl_seconds: 86400
 refresh_metadata: false
+metadata_workers: 4
 ```
 
 Then run:
@@ -400,6 +409,8 @@ metadata_cache_ttl_seconds
 ```
 
 This keeps retries fast without blindly trusting stale playlist state. Set `metadata_cache_ttl_seconds: 0` to keep cache entries valid until the playlist candidate list changes. Use `--refresh-metadata` after changing filters or when you need fresh title/date/count metadata.
+
+First-time discovery uses `metadata_workers` concurrent `yt-dlp` metadata lookups. The cache is written after each completed lookup, so an interrupted run can reuse already fetched candidate metadata on the next attempt.
 
 ## Testing
 

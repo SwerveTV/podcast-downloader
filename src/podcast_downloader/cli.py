@@ -61,6 +61,7 @@ def add_config_flags(parser: argparse.ArgumentParser) -> None:
         help="Live progress display mode. Defaults to auto.",
     )
     parser.add_argument("--metadata-cache-ttl-seconds", type=int)
+    parser.add_argument("--metadata-workers", type=int, help="Concurrent detailed metadata lookups. Defaults to 4.")
     parser.add_argument("--no-metadata-cache", dest="metadata_cache_enabled", action="store_false", default=None)
     parser.add_argument(
         "--refresh-metadata",

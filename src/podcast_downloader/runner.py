@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -130,15 +131,10 @@ def process_show(
         entries = client.discover_playlist(job.playlist_url)
         result["episodes_discovered"] = len(entries)
         cache_path = show_root / "metadata-cache" / "playlist-candidates.json"
-        candidates = load_cached_candidates(cache_path, playlist.playlist_id, entries, config)
-        if candidates is None:
-            progress.show_status(
-                f"fetching detailed metadata for {len(entries[: config.playlist_scan_depth])} candidate(s)"
-            )
-            candidates = _fetch_candidates(client, entries, config.playlist_scan_depth)
-            write_candidate_cache(cache_path, playlist.playlist_id, entries, candidates, config)
-        else:
-            progress.show_status(f"using cached detailed metadata for {len(candidates)} candidate(s)")
+        progress.show_status(
+            f"preparing detailed metadata for {len(entries[: config.playlist_scan_depth])} candidate(s)"
+        )
+        candidates = _fetch_candidates(client, entries, playlist.playlist_id, cache_path, config, progress)
         selection = select_newest_eligible(candidates, config)
         result["episodes_selected"] = len(selection.selected)
         result["episodes_excluded"] = len(selection.rejected)
@@ -229,37 +225,138 @@ def read_archive_ids(path: Path) -> set[str]:
     return ids
 
 
-def _fetch_candidates(client: YtDlpClient, entries: list[dict[str, object]], depth: int) -> list[EpisodeCandidate]:
-    candidates: list[EpisodeCandidate] = []
-    for position, entry in enumerate(entries[:depth], start=1):
-        video_id = str(entry.get("id") or "")
-        title = str(entry.get("title") or video_id or "Unavailable video")
-        url = str(
-            entry.get("url")
-            or entry.get("webpage_url")
-            or (f"https://www.youtube.com/watch?v={video_id}" if video_id else "")
-        )
-        if not url:
-            continue
-        try:
-            metadata = client.fetch_episode_metadata(url)
-        except DownloadError as exc:
-            availability = classify_metadata_lookup_failure(str(exc))
-            if availability is None:
-                raise
-            candidates.append(
-                EpisodeCandidate(
-                    id=video_id,
-                    title=title,
-                    webpage_url=url,
-                    availability=availability,
-                    playlist_position=position,
-                    metadata={"metadata_error": str(exc)},
+def _fetch_candidates(
+    client: YtDlpClient,
+    entries: list[dict[str, object]],
+    playlist_id: str,
+    cache_path: Path,
+    config: AppConfig,
+    progress: ProgressReporter,
+) -> list[EpisodeCandidate]:
+    scan_entries = entries[: config.playlist_scan_depth]
+    candidate_map = load_cached_candidate_map(cache_path, playlist_id, entries, config) or {}
+    missing = [
+        (position, entry)
+        for position, entry in enumerate(scan_entries, start=1)
+        if candidate_request_key(entry) not in candidate_map
+    ]
+    cached_count = len(scan_entries) - len(missing)
+    if cached_count:
+        progress.show_status(f"using {cached_count} cached candidate metadata record(s)")
+    if missing:
+        workers = metadata_worker_count(config.metadata_workers, len(missing))
+        progress.show_status(f"fetching {len(missing)} candidate metadata record(s) with {workers} worker(s)")
+        if workers == 1:
+            for position, entry in missing:
+                key, candidate = fetch_candidate_for_entry(client, position, entry)
+                candidate_map[key] = candidate
+                write_candidate_cache(
+                    cache_path,
+                    playlist_id,
+                    entries,
+                    ordered_cached_candidates(candidate_map, entries, config.playlist_scan_depth),
+                    config,
                 )
-            )
-            continue
-        candidates.append(client.candidate_from_metadata(metadata, playlist_position=position))
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(fetch_candidate_for_entry, client, position, entry) for position, entry in missing
+                ]
+                for completed, future in enumerate(as_completed(futures), start=1):
+                    key, candidate = future.result()
+                    candidate_map[key] = candidate
+                    if completed == len(futures) or completed % workers == 0:
+                        progress.show_status(f"metadata fetched {completed}/{len(futures)}")
+                    write_candidate_cache(
+                        cache_path,
+                        playlist_id,
+                        entries,
+                        ordered_cached_candidates(candidate_map, entries, config.playlist_scan_depth),
+                        config,
+                    )
+    return ordered_cached_candidates(candidate_map, entries, config.playlist_scan_depth)
+
+
+def fetch_candidate_for_entry(
+    client: YtDlpClient, position: int, entry: dict[str, object]
+) -> tuple[str, EpisodeCandidate]:
+    key = candidate_request_key(entry)
+    if not key:
+        key = f"position:{position}"
+    video_id = str(entry.get("id") or "")
+    title = str(entry.get("title") or video_id or "Unavailable video")
+    url = str(
+        entry.get("url")
+        or entry.get("webpage_url")
+        or (f"https://www.youtube.com/watch?v={video_id}" if video_id else "")
+    )
+    if not url:
+        return key, EpisodeCandidate(
+            id=video_id,
+            title=title,
+            webpage_url="",
+            availability="unavailable",
+            playlist_position=position,
+            metadata={"metadata_error": "missing candidate URL"},
+        )
+    try:
+        metadata = client.fetch_episode_metadata(url)
+    except DownloadError as exc:
+        availability = classify_metadata_lookup_failure(str(exc))
+        if availability is None:
+            raise
+        return key, EpisodeCandidate(
+            id=video_id,
+            title=title,
+            webpage_url=url,
+            availability=availability,
+            playlist_position=position,
+            metadata={"metadata_error": str(exc)},
+        )
+    return key, client.candidate_from_metadata(metadata, playlist_position=position)
+
+
+def metadata_worker_count(configured_workers: int, missing_count: int) -> int:
+    return max(1, min(configured_workers, missing_count))
+
+
+def ordered_cached_candidates(
+    candidate_map: dict[str, EpisodeCandidate], entries: list[dict[str, object]], depth: int
+) -> list[EpisodeCandidate]:
+    candidates: list[EpisodeCandidate] = []
+    for entry in entries[:depth]:
+        key = candidate_request_key(entry)
+        if key in candidate_map:
+            candidates.append(candidate_map[key])
     return candidates
+
+
+def candidate_request_key(entry: dict[str, object]) -> str:
+    video_id = str(entry.get("id") or "")
+    url = str(entry.get("url") or entry.get("webpage_url") or "")
+    return video_id or url
+
+
+def load_cached_candidate_map(
+    cache_path: Path,
+    playlist_id: str,
+    entries: list[dict[str, object]],
+    config: AppConfig,
+) -> dict[str, EpisodeCandidate] | None:
+    cached = load_cached_candidates(cache_path, playlist_id, entries, config)
+    if cached is None:
+        return None
+    candidate_map: dict[str, EpisodeCandidate] = {}
+    for candidate in cached:
+        if candidate.playlist_position is None:
+            continue
+        entry_index = candidate.playlist_position - 1
+        if entry_index < 0 or entry_index >= min(len(entries), config.playlist_scan_depth):
+            continue
+        key = candidate_request_key(entries[entry_index])
+        if key:
+            candidate_map[key] = candidate
+    return candidate_map
 
 
 def load_cached_candidates(

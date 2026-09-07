@@ -33,6 +33,7 @@ class AppConfig:
     metadata_cache_enabled: bool = True
     metadata_cache_ttl_seconds: int = 24 * 60 * 60
     refresh_metadata: bool = False
+    metadata_workers: int = 4
 
 
 def load_config(path: Path | None) -> AppConfig:
