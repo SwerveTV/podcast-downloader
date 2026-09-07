@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
-from .exceptions import DependencyError, DownloadError
+from .exceptions import DependencyError, DownloadError, InvalidPlaylistError
 from .models import EpisodeCandidate
 from .progress import PROGRESS_TEMPLATE, DownloadProgress, parse_progress_line
 
@@ -139,7 +139,7 @@ class YtDlpClient:
             raise DownloadError(f"Failed to start yt-dlp: {exc}") from exc
         if result.returncode != 0:
             stderr = _redact(result.stderr.strip())
-            raise DownloadError(stderr or f"yt-dlp exited with status {result.returncode}")
+            raise _classify_ytdlp_error(stderr or f"yt-dlp exited with status {result.returncode}")
         return result
 
     def _run_streaming(
@@ -183,7 +183,7 @@ class YtDlpClient:
         stderr_text = "".join(stderr_lines)
         if returncode != 0:
             stderr = _redact(stderr_text.strip() or stdout.strip())
-            raise DownloadError(stderr or f"yt-dlp exited with status {returncode}")
+            raise _classify_ytdlp_error(stderr or f"yt-dlp exited with status {returncode}")
         return subprocess.CompletedProcess(args, returncode, stdout, stderr_text)
 
 
@@ -192,6 +192,22 @@ def _redact(value: str) -> str:
     for marker in ("--cookies", "--cookies-from-browser", "Authorization:", "Cookie:"):
         redacted = redacted.replace(marker, "[redacted]")
     return redacted
+
+
+def _classify_ytdlp_error(message: str) -> DownloadError | InvalidPlaylistError:
+    lower = message.casefold()
+    if "[youtube:tab]" in lower and ("http error 400" in lower or "unable to download api page" in lower):
+        return InvalidPlaylistError(
+            "YouTube rejected the playlist URL while reading playlist metadata. "
+            "Check that the spreadsheet contains a real public playlist URL, not the sample placeholder "
+            "`PL1234567890abcdefghi`, then rerun `podcast-download validate`."
+        )
+    if "playlist" in lower and any(marker in lower for marker in ("private", "unavailable", "does not exist")):
+        return InvalidPlaylistError(
+            "Playlist is private, unavailable, or does not exist. "
+            "Confirm the playlist URL is public, or configure an approved cookie source if access is required."
+        )
+    return DownloadError(message)
 
 
 def _int_or_none(value: object) -> int | None:

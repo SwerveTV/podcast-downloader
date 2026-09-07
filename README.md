@@ -192,10 +192,7 @@ podcast-download consolidate --output "/path/to/Podcast_Ingest"
 Use a config file:
 
 ```bash
-podcast-download --config config.example.yaml run \
-  --input examples/sample_shows.csv \
-  --operator "Trey" \
-  --output "./Podcast_Ingest"
+podcast-download --config config.yaml run
 ```
 
 CLI flags override YAML values.
@@ -285,16 +282,16 @@ The `.info.json` file is the canonical full-fidelity metadata record. CSV manife
 See `config.example.yaml`.
 
 ```yaml
-input: "./examples/sample_shows.csv"
+input: "/path/to/shows.xlsx"
 operator: "Trey"
 episode_count: 10
 playlist_scan_depth: 50
 minimum_duration_seconds: 1200
 exclude_shorts: true
 exclude_livestreams: true
-yt_dlp_path: "yt-dlp"
+yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
 format_selector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-output_root: "./Podcast_Ingest"
+output_root: "/path/to/Podcast_Ingest"
 lock_timeout_seconds: 21600
 retry_count: 3
 filename_max_length: 180

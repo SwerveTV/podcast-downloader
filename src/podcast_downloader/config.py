@@ -45,7 +45,8 @@ def load_config(path: Path | None) -> AppConfig:
     coerced: dict[str, Any] = {}
     path_fields = {"output_root", "cookie_file"}
     for key, value in data.items():
-        coerced[key] = Path(value).expanduser() if key in path_fields and value else value
+        value = _strip_wrapping_quotes(value)
+        coerced[key] = Path(str(value)).expanduser() if key in path_fields and value else value
     return AppConfig(**coerced)
 
 
@@ -55,3 +56,11 @@ def merge_config(base: AppConfig, overrides: dict[str, Any]) -> AppConfig:
         if value is not None:
             values[key] = value
     return AppConfig(**values)
+
+
+def _strip_wrapping_quotes(value: object) -> object:
+    if not isinstance(value, str) or len(value) < 2:
+        return value
+    if value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value

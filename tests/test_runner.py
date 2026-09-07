@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from podcast_downloader.config import AppConfig
-from podcast_downloader.exceptions import DependencyError, DownloadError
+from podcast_downloader.exceptions import DependencyError, DownloadError, InvalidPlaylistError
 from podcast_downloader.models import EpisodeCandidate
 from podcast_downloader.runner import dry_run_plan, read_archive_ids
 from podcast_downloader.ytdlp import YtDlpClient, require_executable
@@ -42,6 +42,24 @@ def test_failed_subprocess_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
     with pytest.raises(DownloadError, match="network failure"):
         client.fetch_episode_metadata("https://youtu.be/id")
+
+
+def test_youtube_tab_http_400_is_reported_as_invalid_playlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = YtDlpClient.__new__(YtDlpClient)
+    client.config = AppConfig()
+    client.executable = "yt-dlp"
+
+    def fake_run(args: list[str], check: bool, capture_output: bool, text: bool) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args,
+            1,
+            "",
+            "ERROR: [youtube:tab] PL1234567890abcdefghi: Unable to download API page: HTTP Error 400: Bad Request",
+        )
+
+    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
+    with pytest.raises(InvalidPlaylistError, match="sample placeholder"):
+        client.discover_playlist("https://www.youtube.com/playlist?list=PL1234567890abcdefghi")
 
 
 def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:
