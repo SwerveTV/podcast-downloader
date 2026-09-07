@@ -267,6 +267,7 @@ input: "/path/to/shows.xlsx"
 operator: "Trey"
 output_root: "/path/to/Podcast_Ingest"
 yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
+ignore_ytdlp_config: true
 progress: "auto"
 metadata_cache_enabled: true
 metadata_cache_ttl_seconds: 86400
@@ -357,6 +358,7 @@ minimum_duration_seconds: 1200
 exclude_shorts: true
 exclude_livestreams: true
 yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
+ignore_ytdlp_config: true
 format_selector: "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
 output_root: "/path/to/Podcast_Ingest"
 lock_timeout_seconds: 21600
@@ -443,6 +445,8 @@ This inspects playlist metadata only and does not download video.
 `Missing yt-dlp`: install it or pass `--yt-dlp-path`.
 
 `Missing ffmpeg`: install `ffmpeg` and make it discoverable for the process.
+
+`Unable to create directory: /Volumes/...`: yt-dlp may be reading a user config file such as `~/.config/yt-dlp/config` that contains a `-P` output path. The downloader passes `--ignore-config` by default so those global paths do not override `output_root`. Keep `ignore_ytdlp_config: true` unless you intentionally want that behavior, or run with `--use-ytdlp-config` for one-off debugging.
 
 `Private or unavailable playlist`: confirm the playlist is public or provide an approved cookie file/browser source locally.
 

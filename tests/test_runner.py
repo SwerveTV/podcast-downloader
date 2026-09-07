@@ -55,6 +55,38 @@ def test_failed_subprocess_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
         client.fetch_episode_metadata("https://youtu.be/id")
 
 
+def test_ytdlp_ignores_user_config_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = YtDlpClient.__new__(YtDlpClient)
+    client.config = AppConfig()
+    client.executable = "yt-dlp"
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(args: list[str], check: bool, capture_output: bool, text: bool) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        return subprocess.CompletedProcess(args, 0, '{"entries":[]}', "")
+
+    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
+    client.discover_playlist("https://www.youtube.com/playlist?list=PLcache1234567890")
+
+    assert "--ignore-config" in captured["args"]
+
+
+def test_ytdlp_user_config_can_be_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = YtDlpClient.__new__(YtDlpClient)
+    client.config = AppConfig(ignore_ytdlp_config=False)
+    client.executable = "yt-dlp"
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(args: list[str], check: bool, capture_output: bool, text: bool) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        return subprocess.CompletedProcess(args, 0, '{"entries":[]}', "")
+
+    monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.run", fake_run)
+    client.discover_playlist("https://www.youtube.com/playlist?list=PLcache1234567890")
+
+    assert "--ignore-config" not in captured["args"]
+
+
 def test_youtube_tab_http_400_is_reported_as_invalid_playlist(monkeypatch: pytest.MonkeyPatch) -> None:
     client = YtDlpClient.__new__(YtDlpClient)
     client.config = AppConfig()
@@ -349,7 +381,10 @@ def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) ->
         def kill(self) -> None:
             pass
 
+    captured: dict[str, Any] = {}
+
     def fake_popen(*args: Any, **kwargs: Any) -> FakeProcess:
+        captured["args"] = args[0]
         return FakeProcess()
 
     monkeypatch.setattr("podcast_downloader.ytdlp.subprocess.Popen", fake_popen)
@@ -363,6 +398,7 @@ def test_streaming_download_reports_progress(monkeypatch: pytest.MonkeyPatch) ->
 
     assert len(updates) == 1
     assert updates[0].percent == 50.0
+    assert "--ignore-config" in captured["args"]
 
 
 def test_keyboard_interrupt_propagates(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -19,6 +19,7 @@ class AppConfig:
     exclude_shorts: bool = True
     exclude_livestreams: bool = True
     yt_dlp_path: str = "yt-dlp"
+    ignore_ytdlp_config: bool = True
     format_selector: str = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
     output_root: Path | None = None
     lock_timeout_seconds: int = 6 * 60 * 60

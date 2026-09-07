@@ -46,6 +46,13 @@ def add_config_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-shorts", dest="exclude_shorts", action="store_false", default=None)
     parser.add_argument("--include-livestreams", dest="exclude_livestreams", action="store_false", default=None)
     parser.add_argument("--yt-dlp-path")
+    parser.add_argument(
+        "--use-ytdlp-config",
+        dest="ignore_ytdlp_config",
+        action="store_false",
+        default=None,
+        help="Allow yt-dlp to read its global/user config files. Disabled by default for reproducible paths.",
+    )
     parser.add_argument("--format-selector")
     parser.add_argument("--lock-timeout-seconds", type=int)
     parser.add_argument("--retry-count", type=int)

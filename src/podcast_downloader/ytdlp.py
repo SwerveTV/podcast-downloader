@@ -36,6 +36,7 @@ class YtDlpClient:
     def discover_playlist(self, playlist_url: str) -> list[dict[str, Any]]:
         args = [
             self.executable,
+            *self._config_args(),
             "--flat-playlist",
             "--dump-single-json",
             "--playlist-end",
@@ -54,7 +55,15 @@ class YtDlpClient:
         return [entry for entry in entries if isinstance(entry, dict)]
 
     def fetch_episode_metadata(self, url_or_id: str) -> dict[str, Any]:
-        args = [self.executable, "--dump-single-json", "--no-playlist", "--skip-download", "--no-warnings", url_or_id]
+        args = [
+            self.executable,
+            *self._config_args(),
+            "--dump-single-json",
+            "--no-playlist",
+            "--skip-download",
+            "--no-warnings",
+            url_or_id,
+        ]
         result = self._run(args)
         try:
             data = json.loads(result.stdout)
@@ -96,6 +105,7 @@ class YtDlpClient:
     ) -> subprocess.CompletedProcess[str]:
         args = [
             self.executable,
+            *self._config_args(),
             "--newline",
             "--progress-template",
             PROGRESS_TEMPLATE,
@@ -127,6 +137,9 @@ class YtDlpClient:
             args.extend(["--sleep-interval", str(self.config.sleep_interval_seconds)])
         args.append(episode.webpage_url)
         return self._run_streaming(args, progress_callback)
+
+    def _config_args(self) -> list[str]:
+        return ["--ignore-config"] if self.config.ignore_ytdlp_config else []
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         try:
