@@ -1,3 +1,5 @@
+input: "./examples/sample_shows.csv"
+operator: "Trey"
 episode_count: 10
 playlist_scan_depth: 50
 minimum_duration_seconds: 1200

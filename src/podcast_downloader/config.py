@@ -11,6 +11,8 @@ from .progress import ProgressMode
 
 @dataclass(frozen=True)
 class AppConfig:
+    input: str | None = None
+    operator: str | None = None
     episode_count: int = 10
     playlist_scan_depth: int = 50
     minimum_duration_seconds: int = 1200

@@ -20,21 +20,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     validate = sub.add_parser("validate", help="Validate spreadsheet input.")
-    validate.add_argument("--input", required=True)
+    validate.add_argument("--input", help="Spreadsheet path or public Google Sheets URL.")
 
     list_cmd = sub.add_parser("list", help="List valid jobs, optionally filtered by operator.")
-    list_cmd.add_argument("--input", required=True)
+    list_cmd.add_argument("--input", help="Spreadsheet path or public Google Sheets URL.")
     list_cmd.add_argument("--operator")
 
     run = sub.add_parser("run", help="Download assigned shows.")
-    run.add_argument("--input", required=True)
-    run.add_argument("--operator", required=True)
+    run.add_argument("--input", help="Spreadsheet path or public Google Sheets URL.")
+    run.add_argument("--operator")
     run.add_argument("--output", type=Path)
     run.add_argument("--dry-run", action="store_true")
     add_config_flags(run)
 
     consolidate = sub.add_parser("consolidate", help="Create master manifest from completed show manifests.")
-    consolidate.add_argument("--output", required=True, type=Path)
+    consolidate.add_argument("--output", type=Path)
     return parser
 
 
@@ -68,34 +68,42 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_config(args.config)
         if args.command == "validate":
-            jobs, ignored, _ = read_spreadsheet(args.input)
+            input_source = require_string(args.input or config.input, "--input or input in config")
+            jobs, ignored, _ = read_spreadsheet(input_source)
             report = validate_jobs(jobs, ignored, config.episode_count)
             print_validation(report)
             return 2 if report.has_errors else 0
         if args.command == "list":
-            for job in list_jobs(args.input, args.operator):
+            input_source = require_string(args.input or config.input, "--input or input in config")
+            operator = args.operator if args.operator is not None else config.operator
+            for job in list_jobs(input_source, operator):
                 print(f"{job.operator or '-'}\t{job.network}\t{job.show_name}\t{job.playlist_url}")
             return 0
         if args.command == "run":
             overrides = vars(args).copy()
-            for key in ("command", "config", "input", "operator", "output", "dry_run"):
+            for key in ("command", "config", "output", "dry_run"):
                 overrides.pop(key, None)
             overrides["output_root"] = args.output
             config = merge_config(config, overrides)
+            input_source = require_string(config.input, "--input or input in config")
+            operator = require_string(config.operator, "--operator or operator in config")
             if args.dry_run:
-                jobs, ignored, _ = read_spreadsheet(args.input)
+                jobs, ignored, _ = read_spreadsheet(input_source)
                 report = validate_jobs(jobs, ignored, config.episode_count)
                 if report.has_errors:
                     print_validation(report)
                     return 2
-                plan = dry_run_plan(args.input, args.operator, config)
+                plan = dry_run_plan(input_source, operator, config)
                 print(json.dumps(plan, indent=2, ensure_ascii=False))
                 return 0
-            summary = run_downloads(args.input, args.operator, config, dry_run=False)
+            summary = run_downloads(input_source, operator, config, dry_run=False)
             print(json.dumps(asdict(summary), indent=2))
             return 1 if summary.episodes_failed else 0
         if args.command == "consolidate":
-            path = consolidate_manifests(args.output)
+            output_root = args.output or config.output_root
+            if output_root is None:
+                raise ValueError("--output or output_root in config is required.")
+            path = consolidate_manifests(output_root)
             print(f"Master manifest written: {path}")
             return 0
     except (PodcastDownloaderError, OSError, ValueError) as exc:
@@ -106,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def print_validation(report: ValidationReport) -> None:
     print(json.dumps(asdict(report), indent=2, ensure_ascii=False))
+
+
+def require_string(value: str | None, label: str) -> str:
+    if value is None or not value.strip():
+        raise ValueError(f"{label} is required.")
+    return value
 
 
 if __name__ == "__main__":

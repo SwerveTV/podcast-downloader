@@ -200,6 +200,28 @@ podcast-download --config config.example.yaml run \
 
 CLI flags override YAML values.
 
+You can also put the spreadsheet, operator, output root, yt-dlp path, and progress default in YAML:
+
+```yaml
+input: "/path/to/shows.xlsx"
+operator: "Trey"
+output_root: "/path/to/Podcast_Ingest"
+yt_dlp_path: "/opt/homebrew/bin/yt-dlp"
+progress: "auto"
+```
+
+Then run:
+
+```bash
+podcast-download --config config.yaml run
+```
+
+Override any default on the command line:
+
+```bash
+podcast-download --config config.yaml run --operator "Operator 2" --progress plain
+```
+
 ## Episode Selection
 
 The default is the 10 newest eligible videos per playlist. Discovery is intentionally two-phase:
@@ -263,6 +285,8 @@ The `.info.json` file is the canonical full-fidelity metadata record. CSV manife
 See `config.example.yaml`.
 
 ```yaml
+input: "./examples/sample_shows.csv"
+operator: "Trey"
 episode_count: 10
 playlist_scan_depth: 50
 minimum_duration_seconds: 1200
