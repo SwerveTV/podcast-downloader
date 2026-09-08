@@ -460,6 +460,8 @@ def _optional_int(value: object) -> int | None:
 
 def classify_metadata_lookup_failure(message: str) -> str | None:
     lower = message.casefold()
+    if "premieres in" in lower or ("premiere" in lower and "upcoming" in lower):
+        return "is_upcoming"
     if "private video" in lower:
         return "private"
     if "video unavailable" in lower or "this video is unavailable" in lower:

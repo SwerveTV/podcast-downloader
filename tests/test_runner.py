@@ -109,6 +109,10 @@ def test_private_video_metadata_error_is_skippable() -> None:
     assert classify_metadata_lookup_failure("ERROR: [youtube] aMdTvV1cjXs: Private video") == "private"
 
 
+def test_upcoming_premiere_metadata_error_is_skippable() -> None:
+    assert classify_metadata_lookup_failure("ERROR: [youtube] id: Premieres in 34 hours") == "is_upcoming"
+
+
 def test_network_metadata_error_is_not_skippable() -> None:
     assert classify_metadata_lookup_failure("ERROR: Unable to download webpage: timed out") is None
 
