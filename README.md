@@ -42,48 +42,145 @@ Each show downloads under the current operator in `01_Downloading`. After all se
 
 ## macOS Setup
 
-Use Python 3.11 or newer:
+Complete these steps once on each operator's Mac. The commands below assume the repository will be cloned into `~/podcast-downloader`; use a different directory if preferred.
+
+### 1. Install Homebrew
+
+If Homebrew is not already installed, install it from the official installer at <https://brew.sh/>. After installation, follow the installer output to add Homebrew to your shell environment. Confirm that it is available:
 
 ```bash
-cd /Users/treyconnet/Dev/VS-Code-Projects/podcast-downloader
-python3.11 -m venv .venv
+brew --version
+```
+
+Apple Silicon Macs, including M-series Macs, normally use `/opt/homebrew`. Intel Macs normally use `/usr/local`. Do not hard-code one of those directories when `brew --prefix` can report the correct location.
+
+### 2. Install Python, yt-dlp, and ffmpeg
+
+The downloader requires Python 3.11 or newer, the external `yt-dlp` executable, and `ffmpeg` for stream merging:
+
+```bash
+brew install python@3.11 yt-dlp ffmpeg
+"$(brew --prefix python@3.11)/bin/python3.11" --version
+ffmpeg -version
+```
+
+### 3. Clone and install the project
+
+Clone the repository and create an isolated Python environment:
+
+```bash
+cd ~
+git clone https://github.com/SwerveTV/podcast-downloader.git
+cd ~/podcast-downloader
+"$(brew --prefix python@3.11)/bin/python3.11" -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Install external media tools with Homebrew:
+If the repository is already cloned, update it instead:
 
 ```bash
-brew install yt-dlp ffmpeg
+cd ~/podcast-downloader
+git pull origin main
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
-To locate Homebrew `yt-dlp` without changing global PATH order:
+Verify that the CLI was installed into the active environment:
+
+```bash
+which podcast-download
+podcast-download --help
+```
+
+If `which podcast-download` returns nothing, activate the environment and reinstall the package with `python -m pip install -e ".[dev]"`.
+
+### 4. Create the local configuration
+
+Copy the example configuration. `default.yaml` is ignored by Git and should remain local to each operator's machine:
+
+```bash
+cd ~/podcast-downloader
+cp config.example.yaml default.yaml
+open -e default.yaml
+```
+
+At minimum, set these values:
+
+```yaml
+input: "https://docs.google.com/spreadsheets/d/SHEET_ID/edit?gid=0"
+operator: "Trey"
+output_root: "/path/to/Podcast_Ingest"
+yt_dlp_path: "/opt/homebrew/opt/yt-dlp/bin/yt-dlp"
+progress: "auto"
+```
+
+The `yt_dlp_path` above is the normal Apple Silicon location. Intel Macs normally use `/usr/local/opt/yt-dlp/bin/yt-dlp`. To get the correct prefix on any Mac, run:
 
 ```bash
 brew --prefix yt-dlp
-$(brew --prefix yt-dlp)/bin/yt-dlp --version
 ```
 
-Then pass it explicitly:
+Append `/bin/yt-dlp` to the returned directory and put that complete path in `default.yaml`. For example:
 
 ```bash
-podcast-download run \
-  --input "/path/to/shows.xlsx" \
-  --operator "Trey" \
-  --output "/path/to/Podcast_Ingest" \
-  --yt-dlp-path "$(brew --prefix yt-dlp)/bin/yt-dlp"
+"$(brew --prefix yt-dlp)/bin/yt-dlp" --version
 ```
 
-`ffmpeg` still needs to be discoverable by name. If Homebrew is not first in PATH, launch the command with the Homebrew bin directory added for that process:
+Use a real local or mounted output location for `output_root`. The directory must be writable and have enough free space for the selected media. For example:
+
+```yaml
+output_root: "/Volumes/Extreme SSD/Podcast_Ingest"
+```
+
+If the volume is not mounted, use a local path such as `"/Users/treyconnet/Podcast_Ingest"` until it is available.
+
+### 5. Verify the installation
+
+Run these checks before accessing YouTube:
 
 ```bash
-PATH="$(brew --prefix ffmpeg)/bin:$PATH" podcast-download run \
-  --input "/path/to/shows.xlsx" \
-  --operator "Trey" \
-  --output "/path/to/Podcast_Ingest" \
-  --yt-dlp-path "$(brew --prefix yt-dlp)/bin/yt-dlp"
+source ~/podcast-downloader/.venv/bin/activate
+"$(brew --prefix yt-dlp)/bin/yt-dlp" --version
+command -v ffmpeg
+ffmpeg -version
+podcast-download --config default.yaml validate
 ```
+
+The validation command reads the spreadsheet but does not download media. For a public Google Sheet, no Google API credentials are required. If the sheet is local, replace `input` with an `.xlsx` or `.csv` path.
+
+### 6. List assignments and run a dry run
+
+Confirm that the operator filter returns the expected shows:
+
+```bash
+podcast-download --config default.yaml list
+```
+
+Then inspect the planned work without downloading anything:
+
+```bash
+podcast-download --config default.yaml run --dry-run
+```
+
+### 7. Start the download
+
+Once validation and the dry run look correct:
+
+```bash
+podcast-download --config default.yaml run
+```
+
+CLI flags override values from `default.yaml`. For example:
+
+```bash
+podcast-download --config default.yaml run \
+  --operator "Operator 2" \
+  --progress plain
+```
+
+The downloader ignores user-level yt-dlp configuration by default so settings such as a personal `-P` output directory cannot redirect downloads. Keep `ignore_ytdlp_config: true` unless you intentionally need a local yt-dlp config.
 
 ## Spreadsheet Columns
 
